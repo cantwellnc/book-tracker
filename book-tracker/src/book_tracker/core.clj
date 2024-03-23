@@ -17,7 +17,7 @@
   (def resp (client/get "https://openlibrary.org/search.json?q=good+omens"))
   (def resp-json (cheshire/decode (:body resp)))
 
-  ;; get isbns for first item on page (assume top result for now, but in theory we could return a 
+  ;; get isbns for FIRST item on page (assume top result for now, but in theory we could return a 
   ;; list to the user)
   (def isbns (get (first (get resp-json "docs")) "isbn"))
 
@@ -83,40 +83,26 @@
         {:in-store true :url (:url stringy-book-page)}
         {:in-store false})))
   
+  ;; this just computes it for all links. 
   (map in-store? valid-links)
   
-
-
-
-
 
 
   ;; TODO: trying to figure out how to find data in deeply nested messed up struct. The hickory lib
   ;; does what it can, but i think it is so unstructured that it would almost be easier to just treat the 
   ;; whole thing as a string and do a substring match lol
-  as-hickory
-  (defn get-content-status [item]
-    (cond
-      (nil? item) item
-      (string? item) item
-      (and (map? item) (= (:attrs item) {:class "abaproduct-status"})) (:content item)
-      (map? item) (cons (get-content-status (first (:content item))) (get-content-status (rest (:content item))))
-      (vector? item) (if (= :content (first item))
-                      ;;  weirdness in the data; sometimes :content gets mapped to a vector of mixed keywords AND maps, rather than just maps
-                       (get-content-status (second item))
-                       (cons (get-content-status (first item)) (get-content-status (rest item))))))
-
-  ;; Ok yeah dang why don't we do a negative check...
-
-
-
-
-
-
-
-  (get-content-status as-hickory)
-
-
+  ;; as-hickory
+  ;; (defn get-content-status [item]
+  ;;   (cond
+  ;;     (nil? item) item
+  ;;     (string? item) item
+  ;;     (and (map? item) (= (:attrs item) {:class "abaproduct-status"})) (:content item)
+  ;;     (map? item) (cons (get-content-status (first (:content item))) (get-content-status (rest (:content item))))
+  ;;     (vector? item) (if (= :content (first item))
+  ;;                     ;;  weirdness in the data; sometimes :content gets mapped to a vector of mixed keywords AND maps, rather than just maps
+  ;;                      (get-content-status (second item))
+  ;;                      (cons (get-content-status (first item)) (get-content-status (rest item))))))
+  ;; (get-content-status as-hickory)
 
   )
 
