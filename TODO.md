@@ -1,0 +1,3 @@
+1) Idea: each book can (potentially) be found at a url like https://www.goldenfigbooks.com/book/9780060853976. That id at the end is an `ISBN13`, (International Standard Book Number), and is a unique identifier for the book. Instead of parsing all that html like I was trying to do, we can just: 
+- GET the ISBN13 for a book from something like https://openlibrary.org/developers/api
+- GET the golden fig book url, and depending on response we can determine if the book is in stock or not! If we get a 404, then we know the book is not available.
