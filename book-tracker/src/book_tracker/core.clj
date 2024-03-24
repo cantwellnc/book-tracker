@@ -13,14 +13,6 @@
   (println x "Hello, World!"))
 
 (comment
-  ;; notice the query string format: a book title => a+book+title
-  (def resp (client/get "https://openlibrary.org/search.json?q=good+omens"))
-  (def resp-json (cheshire/decode (:body resp)))
-
-  ;; get isbns for FIRST item on page (assume top result for now, but in theory we could return a 
-  ;; list to the user)
-  (def isbns (get (first (get resp-json "docs")) "isbn"))
-
 
   (defn english-published-isbns
     "get the english-speaking isbns (which start with 9780 or 9781,
@@ -34,7 +26,7 @@
          (map parse-long)
          sort))
 
-  (def my-isbns (english-published-isbns isbns))
+
 
   ;; go to golden fig + see if the book is there... 
   (defn golden-fig-entry-for
@@ -46,64 +38,114 @@
           (throw (ex-info "HTTP request failed for some reason other than not being able to find the book..." {:ex e}))
           (assoc isbn-map :resp nil)))))
 
-   ;; now I need a top-level data object that maps isbn-url -> response
-  (def urls (map #(str "https://www.goldenfigbooks.com/book/" %) my-isbns))
 
-  (defn url->resp-map
+   ;; now I need a map that maps isbn-url -> response. 
+  (defn url->book-map
     [url]
     (zipmap [:url :resp] [url nil]))
 
-  (defn valid-book-responses [url-resps]
+  (defn valid-book-responses
+    "Collects the book response maps from golden fig
+     that have a non-nil :resp (response) (i.e. golden fig recognizes
+     the isbn and at least has the capacity to order the book
+     for you if it's not in the store)."
+    [url-resps]
     (filter #(some? (:resp %)) url-resps))
 
-  ;; this gives me all the {:url ... :resp ...} pairs that are actually present on gf's website.
-  (def valid-links (->> (map url->resp-map urls)
+
+  (defn add-string-resp-body
+    [book-map]
+    (assoc book-map :string-resp-body (str (get-in book-map [:resp :body]))))
+
+  ;; This takes a valid link + returns a map that tells us if it's in stock at ANY store. 
+  (defn add-in-store?-info
+    "Takes a book-map and returns a new map that tells us if a book is
+     in stock at SOME golden fig location. It also preserves some of the original data, like the :url and the stringified response body."
+    [book-map]
+    (let [book-map-with-str-resp (->> book-map
+                                      add-string-resp-body)
+          _in-store? (comp #(nil? (re-find #"NOT CURRENTLY IN THE STORE" %)) :string-resp-body)]
+
+      (if (_in-store? book-map-with-str-resp)
+        {:in-store true
+         :url (:url book-map-with-str-resp)
+         :string-resp-body (:string-resp-body book-map-with-str-resp)}
+        {:in-store false})))
+
+
+  (def known-store-locations ["Carrboro" "Durham"])
+
+  (defn in-store-location?
+    "If a book is in `store-location`, returns the location,
+     else nil."
+    [book-map store-location]
+    (let [present? (->> book-map
+                        :string-resp-body
+                        (re-find (re-pattern (str "<span class=\"abaproduct-lsi-outlet-name\">" store-location  "</span>"))))]
+      (when present?
+        store-location)))
+
+  (defn find-and-add-store-name
+    "adds the golden fig store location(s) where the book is present to the book-map."
+    [book-map]
+    (->> (map (partial in-store-location? book-map)
+              known-store-locations)
+         (filter some?)
+         (into [])
+         (assoc book-map :store-locations)))
+
+
+
+  ;; ACTUALLY USING THE FNS!
+
+  ;; notice the query string format: a book title => a+book+title  
+  (def resp (client/get "https://openlibrary.org/search.json?q=good+omens"))
+  (def resp-json (cheshire/decode (:body resp)))
+
+  ;; get isbns for FIRST item on page (assume top result for now, but in theory we could return a 
+  ;; list to the user)
+  (def isbns (get (first (get resp-json "docs")) "isbn"))
+
+  (def my-isbns (english-published-isbns isbns))
+
+
+  (def urls (map #(str "https://www.goldenfigbooks.com/book/" %) my-isbns))
+
+  ;; this gives me all the {:url ... :resp ...} book-maps that are actually present on golden fig's website.
+  (def valid-links (->> (map url->book-map urls)
                         (pmap golden-fig-entry-for)
                         (valid-book-responses)))
 
-  (defn resp-body-as-hickory [resp]
+  ;; For all valid links, determine if the book is in any store (and add that data to the map), and then 
+  ;; determine the particular store. We end up with a map that contains all this info for the books that
+  ;; are actually present in a particular store. The book maps that DO NOT satisfy the above are filtered out.
+  (def in-store-copies (->>  valid-links
+                             (map add-in-store?-info)
+                             (filter :in-store)
+                             (map find-and-add-store-name)))
+
+  in-store-copies
+
+
+
+
+
+
+
+
+
+
+  ;; we may or may not need the response body as a data structure, so here it is
+  (defn resp-body-as-hickory
+    "Adds a hickory representation of the golden fig 
+       reponse to the book map."
+    [resp]
     (let [hickory-resp (-> resp
                            :resp
                            :body
                            hickory.core/parse
                            hickory.core/as-hickory)]
       (assoc resp :hickory-resp hickory-resp)))
-
-  (defn to-string [resp]
-    (assoc resp :hickory-resp (str (:hickory-resp resp))))
-
-  ;; This takes a valid link + returns a map that tells us if it's in stock at ANY store. 
-  (defn in-store? [valid-book-link-map]
-    (let [stringy-book-page (->> valid-book-link-map
-                                 resp-body-as-hickory
-                                 to-string)
-          _in-store? (comp #(nil? (re-find #"NOT CURRENTLY IN THE STORE" %)) :hickory-resp)]
-
-      (if (_in-store? stringy-book-page)
-        {:in-store true :url (:url stringy-book-page)}
-        {:in-store false})))
-  
-  ;; this just computes it for all links. 
-  (map in-store? valid-links)
-  
-
-
-  ;; TODO: trying to figure out how to find data in deeply nested messed up struct. The hickory lib
-  ;; does what it can, but i think it is so unstructured that it would almost be easier to just treat the 
-  ;; whole thing as a string and do a substring match lol
-  ;; as-hickory
-  ;; (defn get-content-status [item]
-  ;;   (cond
-  ;;     (nil? item) item
-  ;;     (string? item) item
-  ;;     (and (map? item) (= (:attrs item) {:class "abaproduct-status"})) (:content item)
-  ;;     (map? item) (cons (get-content-status (first (:content item))) (get-content-status (rest (:content item))))
-  ;;     (vector? item) (if (= :content (first item))
-  ;;                     ;;  weirdness in the data; sometimes :content gets mapped to a vector of mixed keywords AND maps, rather than just maps
-  ;;                      (get-content-status (second item))
-  ;;                      (cons (get-content-status (first item)) (get-content-status (rest item))))))
-  ;; (get-content-status as-hickory)
-
   )
 
 
