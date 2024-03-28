@@ -112,8 +112,9 @@
   (def urls (map #(str "https://www.goldenfigbooks.com/book/" %) my-isbns))
 
   ;; this gives me all the {:url ... :resp ...} book-maps that are actually present on golden fig's website.
-  (def valid-links (->> (map url->book-map urls)
-                        (pmap golden-fig-entry-for)
+  (def valid-links (->> urls
+                        (map url->book-map)
+                        (map golden-fig-entry-for)
                         (valid-book-responses)))
 
   ;; For all valid links, determine if the book is in any store (and add that data to the map), and then 
@@ -123,7 +124,7 @@
                              (map add-in-store?-info)
                              (filter :in-store)
                              (map find-and-add-store-name)))
-
+  
   in-store-copies
 
 
