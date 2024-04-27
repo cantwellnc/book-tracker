@@ -16,7 +16,7 @@
 
 
 (comment
-  `(defn english-published-isbns
+  (defn english-published-isbns
      "get the english-speaking isbns (which start with 9780 or 9781,
      ref: https://en.wikipedia.org/wiki/ISBN, see 'Registration Element')
      "
