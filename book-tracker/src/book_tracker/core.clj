@@ -1,10 +1,11 @@
 (ns book-tracker.core
   (:require [clj-http.client :as client]
             [hickory.core :as hickory]
-            [com.rpl.specter :as specter]
             [clojure.string :as string]
-            [cheshire.core :as cheshire]
-            [clojure.walk :as walk]))
+            [cheshire.core :as json]
+            [ring.adapter.jetty :refer [run-jetty]]
+            [postal.core :as postal]))
+
 
 
 (defn foo
@@ -12,19 +13,20 @@
   [x]
   (println x "Hello, World!"))
 
-(comment
 
-  (defn english-published-isbns
-    "get the english-speaking isbns (which start with 9780 or 9781,
+
+(comment
+  `(defn english-published-isbns
+     "get the english-speaking isbns (which start with 9780 or 9781,
      ref: https://en.wikipedia.org/wiki/ISBN, see 'Registration Element')
      "
-    [isbns]
-    (->> isbns
-         (filter #(or
-                   (string/starts-with? % "9781")
-                   (string/starts-with? % "9780")))
-         (map parse-long)
-         sort))
+     [isbns]
+     (->> isbns
+          (filter #(or
+                    (string/starts-with? % "9781")
+                    (string/starts-with? % "9780")))
+          (map parse-long)
+          sort))
 
 
 
@@ -100,7 +102,8 @@
 
   ;; notice the query string format: a book title => a+book+title  
   (def resp (client/get "https://openlibrary.org/search.json?q=good+omens"))
-  (def resp-json (cheshire/decode (:body resp)))
+
+  (def resp-json (json/decode (:body resp)))
 
   ;; get isbns for FIRST item on page (assume top result for now, but in theory we could return a 
   ;; list to the user)
@@ -124,27 +127,62 @@
                              (map add-in-store?-info)
                              (filter :in-store)
                              (map find-and-add-store-name)))
-  
+
   in-store-copies
 
 
 
+  (client/get "https://www.goldenfigbooks.com/book/9780060853976")
+  ;; Ideally we have our in-store-copies by now. This should be a seq of maps like 
+  (def in-store-books '({:url "https://www.goldenfigbooks.com/book/9780060853976"
+                         :resp {:body "stuff"} ;; plus lots of other keys pertaining to the request
+                         :string-resp-body "a messy string containing the html of the body from the call to "
+                         :store-locations ["Carrboro"]}))
+
+  (defn location-message-for
+    [book-map]
+    (let [stores (:store-locations book-map)]
+      (cond
+        (= 1 (count stores))
+        (str "Your book is ready at Golden Fig " (first stores) "!")
+
+        :else
+        (str "Your book is ready at Golden Fig " (first stores) "and " (second stores) "!"))))
+
+
+  (defn email-body-for
+    "Builds the email body for a book-map. Hardcoded to me currently."
+    [book-map]
+    {:from "noreply@book-tracker.com"
+     :to ["cantwell.nc@gmail.com"]
+     :subject (location-message-for book-map)
+     :body (str "Your book is in stock! Here's the link to purchase it online: " (:url book-map))})
 
 
 
+  (defn notify
+    "Sends an email using postal to whoever submitted the notification request
+     Currently only supports gmail, because that's the only email server I know lol"
+    [message]
+    (postal/send-message {:host "smtp.gmail.com"
+                          :user (System/getenv "EMAIL_USER")
+                          :pass (System/getenv "EMAIL_PASS") 
+                          :port 587
+                          :tls  true} message))
 
+  (notify (email-body-for (first in-store-books)))
 
-
-
-  ;; we may or may not need the response body as a data structure, so here it is
-  (defn resp-body-as-hickory
-    "Adds a hickory representation of the golden fig 
-       reponse to the book map."
-    [resp]
-    (let [hickory-resp (-> resp
-                           :resp
-                           :body
-                           hickory.core/parse
-                           hickory.core/as-hickory)]
-      (assoc resp :hickory-resp hickory-resp)))
   )
+
+;; (client/get "http://localhost:3000")
+
+
+(defn handler [request]
+  {:status 200
+   :headers {"Content-Type" "text/plain"}
+   :body (json/encode {:url "https://www.goldenfigbooks.com/book/9780060853976"
+                       :resp {:body "stuff"} ;; plus lots of other keys pertaining to the request
+                       :string-resp-body "a messy string containing the html of the body from the call to "
+                       :store-locations ["Carrboro"]})})
+
+;; (run-jetty handler {:port 3000})
