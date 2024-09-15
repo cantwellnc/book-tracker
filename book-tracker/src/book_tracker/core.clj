@@ -37,8 +37,7 @@
       (assoc isbn-map :resp (client/get url))
       (catch Exception e
         (if (not= 404 (:status (ex-data e)))
-          (throw (ex-info "HTTP request failed for some reason other than not being able to find the book..." {:ex e}))
-          (assoc isbn-map :resp nil)))))
+          (throw (ex-info "HTTP request failed for some reason other than not being able to find the book..." {:ex e}))))))
 
 
    ;; now I need a map that maps isbn-url -> response. 
